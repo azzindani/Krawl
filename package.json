@@ -1,0 +1,28 @@
+{
+  "name": "krawl",
+  "version": "1.0.0",
+  "description": "Knowledge Retrieval and Web Logic Engine",
+  "type": "module",
+  "bin": {
+    "krawl": "./krawl.ts"
+  },
+  "scripts": {
+    "start"  : "tsx krawl.ts",
+    "dev"    : "tsx watch krawl.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "playwright"        : "latest",
+    "better-sqlite3"    : "latest",
+    "zod"               : "latest",
+    "p-limit"           : "latest",
+    "pdf-parse"         : "latest"
+  },
+  "devDependencies": {
+    "tsx"                      : "latest",
+    "typescript"               : "latest",
+    "@types/node"              : "latest",
+    "@types/better-sqlite3"    : "latest",
+    "@types/pdf-parse"         : "latest"
+  }
+}
