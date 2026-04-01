@@ -1,5 +1,7 @@
 node_modules/
 krawl.db
+krawl.db-shm
+krawl.db-wal
 krawl_output.jsonl
 krawl_checkpoint*.json
 router_cache.json
