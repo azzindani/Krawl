@@ -137,7 +137,7 @@ export class CrawlWorker {
 
         const ext = path.extname(new URL(fullUrl).pathname).toLowerCase();
 
-        if (DEFAULTS.COLLECTIBLE_EXTENSIONS.includes(ext)) {
+        if ((DEFAULTS.COLLECTIBLE_EXTENSIONS as readonly string[]).includes(ext)) {
           files.push({
             url : fullUrl,
             text: href,

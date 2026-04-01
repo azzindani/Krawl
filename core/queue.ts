@@ -152,6 +152,13 @@ export class TaskQueue {
     return children;
   }
 
+  // Drain all pending tasks without touching running/done — used by resolveAutoModes
+  drainPending(): Task[] {
+    const tasks    = [...this.pending];
+    this.pending   = [];
+    return tasks;
+  }
+
   isDoneUrl(url: string): boolean {
     return this.done.has(url);
   }
@@ -160,7 +167,7 @@ export class TaskQueue {
   get runningCount() : number { return this.running.size; }
   get doneCount()    : number { return this.done.size; }
   get failedCount()  : number { return this.failed.length; }
-  get deadCount()    : number { return this.deadLetter.size; }
+  get deadCount()    : number { return this.deadLetter.length; }
   get totalCount()   : number {
     return this.pendingCount + this.runningCount +
            this.doneCount + this.failedCount;
