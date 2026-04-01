@@ -1,0 +1,44 @@
+[
+  {
+    "name"     : "BBCA",
+    "url"      : "https://query1.finance.yahoo.com/v8/finance/chart/BBCA.JK?interval=1d&range=5d",
+    "mode"     : "http_json",
+    "priority" : 1,
+    "group"    : "Yahoo",
+    "tags"     : ["stock", "banking", "idx"]
+  },
+  {
+    "name"     : "BBRI",
+    "url"      : "https://query1.finance.yahoo.com/v8/finance/chart/BBRI.JK?interval=1d&range=5d",
+    "mode"     : "http_json",
+    "priority" : 1,
+    "group"    : "Yahoo",
+    "tags"     : ["stock", "banking", "idx"]
+  },
+  {
+    "name"     : "CNBC Headlines",
+    "url"      : "https://www.cnbcindonesia.com/market",
+    "mode"     : "browser",
+    "priority" : 2,
+    "group"    : "CNBC",
+    "tags"     : ["news", "market"]
+  },
+  {
+    "name"     : "IHSG",
+    "url"      : "https://id.investing.com/indices/idx-composite",
+    "mode"     : "browser",
+    "priority" : 1,
+    "group"    : "INVESTING",
+    "tags"     : ["index", "market"]
+  },
+  {
+    "name"     : "OJK Statistik",
+    "url"      : "https://www.ojk.go.id/id/data-dan-statistik/Pages/default.aspx",
+    "mode"     : "crawl",
+    "priority" : 3,
+    "group"    : "OJK",
+    "tags"     : ["regulatory", "pdf"],
+    "crawl_depth": 2,
+    "collect_files": [".pdf", ".xlsx"]
+  }
+]
