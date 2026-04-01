@@ -1,0 +1,7 @@
+node_modules/
+krawl.db
+krawl_output.jsonl
+krawl_checkpoint*.json
+router_cache.json
+krawl_exports/
+krawl_files/

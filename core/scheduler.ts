@@ -4,6 +4,7 @@
 // Collects results, indexes them, checkpoints
 
 import Database from "better-sqlite3";
+import pLimit from "p-limit";
 import { TaskQueue, Task, makeTask, TaskInput } from "./queue.js";
 import { Router } from "./router.js";
 import { Checkpoint } from "./checkpoint.js";
@@ -15,6 +16,8 @@ import { CircuitBreaker } from "../resilience/circuit_breaker.js";
 import { RateLimiter } from "../resilience/rate_limiter.js";
 import { Indexer } from "../db/indexer.js";
 import { StreamWriter } from "../output/stream.js";
+import { initSchema } from "../db/schema.js";
+import { QueryEngine } from "../db/query.js";
 import { DEFAULTS } from "../config/defaults.js";
 
 export interface SchedulerConfig {
@@ -89,7 +92,6 @@ export class Scheduler {
     this.crawlWorker = new CrawlWorker(this.breaker, this.limiter);
 
     // Initialize DB schema
-    const { initSchema } = await import("../db/schema.js");
     initSchema(this.db);
   }
 
@@ -151,29 +153,18 @@ export class Scheduler {
   }
 
   private async resolveAutoModes(): Promise<void> {
-    const autoTasks: Task[] = [];
+    if (this.queue.pendingCount === 0) return;
 
-    // Peek at pending tasks without dequeueing
-    const snapshot = this.queue.snapshot() as { pending: number };
-    if (snapshot.pending === 0) return;
-
-    // We need to resolve modes for "auto" tasks before routing
-    // Re-queue after resolution
-    const tempQueue: Task[] = [];
-
-    while (this.queue.pendingCount > 0) {
-      const task = this.queue.dequeue();
-      if (!task) break;
-      if (task.mode === "auto") autoTasks.push(task);
-      else tempQueue.push(task);
-      this.queue.markDone(task.id); // temporarily
-    }
+    // Drain all pending tasks without touching running/done maps
+    const allTasks  = this.queue.drainPending();
+    const autoTasks = allTasks.filter(t => t.mode === "auto");
+    const rest      = allTasks.filter(t => t.mode !== "auto");
 
     if (autoTasks.length > 0) {
       console.log(`Resolving mode for ${autoTasks.length} auto tasks...`);
 
       // Resolve concurrently but cap at 10
-      const limit   = (await import("p-limit")).default(10);
+      const limit   = pLimit(10);
       const resolved = await Promise.all(
         autoTasks.map(task => limit(async () => {
           task.mode = await this.router.resolve(task.url);
@@ -181,11 +172,11 @@ export class Scheduler {
         }))
       );
 
-      tempQueue.push(...resolved);
+      rest.push(...resolved);
     }
 
-    // Clear done set from temp marking and re-enqueue
-    for (const task of tempQueue) {
+    // Re-enqueue all tasks with their resolved modes
+    for (const task of rest) {
       task.status = "pending";
       this.queue.enqueue(task);
     }
@@ -392,7 +383,6 @@ export class Scheduler {
   }
 
   private printFinalStats(): void {
-    const { QueryEngine } = require("../db/query.js");
     const qe = new QueryEngine(this.db);
     qe.printStats();
     console.log(`\nOutput files:`);
@@ -403,8 +393,5 @@ export class Scheduler {
 
   getDb()    : Database.Database { return this.db; }
   getIndexer(): Indexer           { return this.indexer; }
-  getQuery() {
-    const { QueryEngine } = require("../db/query.js");
-    return new QueryEngine(this.db);
-  }
+  getQuery()  : QueryEngine       { return new QueryEngine(this.db); }
 }
