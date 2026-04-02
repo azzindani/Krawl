@@ -211,19 +211,30 @@ export class Scheduler {
     console.log(`  Blocked : ${blocked.length}`);
     console.log("");
 
-    // Run HTTP and Browser concurrently, Crawl sequentially
+    // Run HTTP and Browser concurrently, Crawl sequentially.
+    // Each phase catches its own errors so a browser launch failure
+    // doesn't discard already-computed HTTP results.
     const [httpResults, browserResults] = await Promise.all([
       httpTasks.length > 0
-        ? this.runHttpPhase(httpTasks)
-        : Promise.resolve([]),
+        ? this.runHttpPhase(httpTasks).catch((e: Error) => {
+            console.error(`\n[HTTP phase error] ${e.message}`);
+            return [] as unknown[];
+          })
+        : Promise.resolve([] as unknown[]),
       browserTasks.length > 0
-        ? this.runBrowserPhase(browserTasks)
-        : Promise.resolve([]),
+        ? this.runBrowserPhase(browserTasks).catch((e: Error) => {
+            console.error(`\n[Browser phase error] ${e.message}`);
+            return [] as unknown[];
+          })
+        : Promise.resolve([] as unknown[]),
     ]);
 
     // Crawl runs after HTTP/Browser to avoid saturating bandwidth
     const crawlResults = crawlTasks.length > 0
-      ? await this.runCrawlPhase(crawlTasks)
+      ? await this.runCrawlPhase(crawlTasks).catch((e: Error) => {
+          console.error(`\n[Crawl phase error] ${e.message}`);
+          return [] as unknown[];
+        })
       : [];
 
     // Process all results
