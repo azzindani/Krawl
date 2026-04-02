@@ -1,4 +1,4 @@
-# Project Name: **KRAWL**
+# 🦎 **KRAWL**
 *Knowledge Retrieval and Web Logic Engine*
 
 ---
