@@ -106,16 +106,21 @@ export class Timer {
       .map(([m, s]) => `${m.replace("_","")}✓${s.ok}✗${s.err}`)
       .join("  ");
 
-    // Clear line + redraw
-    process.stdout.write("\r\x1b[K");
-    process.stdout.write(
+    const line =
       `[${this.formatTime(wallMs)}] ${bar} ${Math.round(pct*100)}%` +
       `  ${completed}/${total}` +
       `  ${rate.toFixed(1)}/s` +
       `  ETA:${this.formatSec(etaSec)}` +
       `  ${modeSummary}` +
-      `  err:${errors}`
-    );
+      `  err:${errors}`;
+
+    if (process.stdout.isTTY) {
+      // Interactive terminal: overwrite the current line in-place
+      process.stdout.write("\r\x1b[K" + line);
+    } else {
+      // Piped / non-interactive (Colab, CI): emit a normal log line
+      console.log(line);
+    }
   }
 
   // Print final summary
