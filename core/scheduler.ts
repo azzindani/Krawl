@@ -61,8 +61,12 @@ export class Scheduler {
 
     this.runId = `run_${Date.now()}_${this.config.instanceId}`;
 
-    // Initialize all components
-    this.db       = new Database(this.config.dbPath);
+    // Open DB and initialize schema FIRST — Indexer.prepareStatements()
+    // calls db.prepare() which validates table existence immediately.
+    this.db = new Database(this.config.dbPath);
+    initSchema(this.db);
+
+    // Initialize all other components
     this.breaker  = new CircuitBreaker();
     this.limiter  = new RateLimiter();
     this.queue    = new TaskQueue();
@@ -90,9 +94,6 @@ export class Scheduler {
     );
 
     this.crawlWorker = new CrawlWorker(this.breaker, this.limiter);
-
-    // Initialize DB schema
-    initSchema(this.db);
   }
 
   addTasks(inputs: TaskInput[]): void {

@@ -77,10 +77,9 @@ export class Indexer {
       `),
 
       insertNews: this.db.prepare(`
-        INSERT INTO news
+        INSERT OR IGNORE INTO news
           (source, headline, url, content, extracted_at, content_hash)
         VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(content_hash) DO NOTHING
       `),
 
       insertFtsNews: this.db.prepare(`
@@ -95,11 +94,10 @@ export class Indexer {
       `),
 
       insertFile: this.db.prepare(`
-        INSERT INTO files
+        INSERT OR IGNORE INTO files
           (source_url, discovered_from, filename, ext,
            content_hash, extracted_at, status)
         VALUES (?, ?, ?, ?, ?, ?, 'discovered')
-        ON CONFLICT(content_hash) DO NOTHING
       `),
 
       insertFtsFile: this.db.prepare(`
