@@ -319,16 +319,9 @@ export class Scheduler {
         this.timer.display();
       }
 
-      // Spawn crawl-discovered tasks back into queue
-      try {
-        if (task.crawlDepth && task.crawlDepth > 0) {
-          const newUrls = results.flatMap(r => r.links);
-          this.queue.spawnFromCrawl(task, newUrls);
-        }
-      } catch (spawnErr) {
-        const e = spawnErr as Error;
-        console.error(`\n[Spawn error for ${task.name}] ${e.message}\n${e.stack}`);
-      }
+      // Note: depth-based crawling is handled inside CrawlWorker's BFS.
+      // spawnFromCrawl is NOT called here — runAllPools() doesn't loop,
+      // so any tasks added to the queue mid-phase would never execute.
     }
 
     this.timer.endPhase("crawl");

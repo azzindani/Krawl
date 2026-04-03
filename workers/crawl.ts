@@ -24,6 +24,13 @@ export interface CrawlResult {
   extractedAt: string;
 }
 
+// Static asset extensions that carry no crawlable content
+const STATIC_EXTENSIONS = new Set([
+  ".css", ".js", ".mjs", ".map",
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".svg",
+  ".woff", ".woff2", ".ttf", ".eot", ".otf",
+]);
+
 function domainOf(url: string): string {
   try { return new URL(url).hostname; } catch { return url; }
 }
@@ -144,6 +151,7 @@ export class CrawlWorker {
             ext,
           });
         } else if (
+          !STATIC_EXTENSIONS.has(ext) &&
           new URL(fullUrl).hostname === domain &&
           fullUrl.startsWith("http")
         ) {

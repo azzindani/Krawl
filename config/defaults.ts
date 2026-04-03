@@ -29,7 +29,7 @@ export const DEFAULTS = {
 
   // Crawl
   MAX_CRAWL_DEPTH     : 3,
-  MAX_CRAWL_PAGES     : 500,
+  MAX_CRAWL_PAGES     : 50,
 
   // Checkpoint
   CHECKPOINT_EVERY    : 10,     // tasks between saves
