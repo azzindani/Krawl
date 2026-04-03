@@ -211,33 +211,40 @@ export class Scheduler {
     console.log(`  Blocked : ${blocked.length}`);
     console.log("");
 
-    // Run HTTP first, then detect http_curl failures and upgrade them to browser.
-    // Browser phase runs after so upgraded tasks can be included.
-    const httpResults: unknown[] = httpTasks.length > 0
-      ? await this.runHttpPhase(httpTasks).catch((e: Error) => {
-          console.error(`\n[HTTP phase error] ${e.message}`);
-          return [] as unknown[];
-        })
-      : [];
+    // HTTP and Browser run concurrently; crawl runs after to avoid saturating bandwidth.
+    const [httpResults, browserResults] = await Promise.all([
+      httpTasks.length > 0
+        ? this.runHttpPhase(httpTasks).catch((e: Error) => {
+            console.error(`\n[HTTP phase error] ${e.message}`);
+            return [] as unknown[];
+          })
+        : Promise.resolve([] as unknown[]),
+      browserTasks.length > 0
+        ? this.runBrowserPhase(browserTasks).catch((e: Error) => {
+            console.error(`\n[Browser phase error] ${e.message}`);
+            return [] as unknown[];
+          })
+        : Promise.resolve([] as unknown[]),
+    ]);
 
-    // Upgrade consistently-failing http_curl domains → browser
+    // Identify http_curl tasks where every result failed → upgrade to browser.
+    // Filter their failed results out of httpResults so they aren't double-indexed.
     const upgradedTasks = this.upgradeFailedCurlTasks(
       httpResults as HttpResult[],
       httpTasks,
     );
+    const upgradedIds = new Set(upgradedTasks.map(t => t.id));
+
+    // Retry upgraded tasks via browser (small sequential step after main phases)
+    let upgradeResults: unknown[] = [];
     if (upgradedTasks.length > 0) {
-      console.log(`\n  Retrying ${upgradedTasks.length} task(s) via browser after http_curl failure`);
+      console.log(`\n  Retrying ${upgradedTasks.length} task(s) via browser (http_curl → browser upgrade)`);
+      upgradeResults = await this.runBrowserPhase(upgradedTasks).catch((e: Error) => {
+        console.error(`\n[Browser upgrade phase error] ${e.message}`);
+        return [] as unknown[];
+      });
     }
 
-    const allBrowserTasks = [...browserTasks, ...upgradedTasks];
-    const browserResults: unknown[] = allBrowserTasks.length > 0
-      ? await this.runBrowserPhase(allBrowserTasks).catch((e: Error) => {
-          console.error(`\n[Browser phase error] ${e.message}`);
-          return [] as unknown[];
-        })
-      : [];
-
-    // Crawl runs after HTTP/Browser to avoid saturating bandwidth
     const crawlResults = crawlTasks.length > 0
       ? await this.runCrawlPhase(crawlTasks).catch((e: Error) => {
           console.error(`\n[Crawl phase error] ${e.message}\n${e.stack}`);
@@ -245,8 +252,14 @@ export class Scheduler {
         })
       : [];
 
-    // Process all results
-    const allResults = [...httpResults, ...browserResults, ...crawlResults];
+    // Exclude failed http_curl results for tasks being retried — browser result wins.
+    const filteredHttpResults = (httpResults as HttpResult[]).filter(
+      r => !(r.mode === "http_curl" && r.status !== "ok" && upgradedIds.has(r.task.id))
+    );
+
+    const allResults = [
+      ...filteredHttpResults, ...browserResults, ...upgradeResults, ...crawlResults,
+    ];
     for (const result of allResults) {
       this.processResult(result as Record<string, unknown>);
     }
