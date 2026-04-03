@@ -80,6 +80,8 @@ function parseYahooChart(body: unknown): Record<string, unknown> {
     const meta   = result?.["meta"] as Record<string, unknown> ?? {};
     return {
       price    : meta["regularMarketPrice"],
+      change   : meta["regularMarketChange"],
+      changePct: meta["regularMarketChangePercent"],
       prevClose: meta["chartPreviousClose"],
       currency : meta["currency"] ?? "IDR",
       exchange : meta["exchangeName"] ?? "",
