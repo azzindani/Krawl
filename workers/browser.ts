@@ -370,30 +370,84 @@ export class BrowserWorker {
 
       case "headlines":
         return page.evaluate((): Record<string, unknown> => {
+          const headlines: string[] = [];
+
+          // Strategy 1: <article> elements (BBC, Reuters, standard blogs)
           const articles = Array.from(document.querySelectorAll("article"));
-          const headlines = articles.slice(0, 15).map(art => {
+          for (const art of articles.slice(0, 20)) {
             for (const sel of ["h2","h3","h4",".title",".headline"]) {
               const el = art.querySelector<HTMLElement>(sel);
-              if (el?.innerText?.trim())
-                return el.innerText.trim().slice(0, 120);
+              const text = el?.innerText?.trim();
+              if (text && text.length > 8) {
+                headlines.push(text.slice(0, 120));
+                break;
+              }
             }
-            return null;
-          }).filter((h): h is string => h !== null);
-          return { headlines, count: headlines.length };
+          }
+
+          // Strategy 2: fallback — h2/h3/h4 that contain a link (works for
+          //   CNBC Indonesia, Kompas, Detik, Tempo, Liputan6, Antara, CNBC.com)
+          if (headlines.length < 5) {
+            const seen = new Set(headlines);
+            const nodes = Array.from(
+              document.querySelectorAll("h2 a, h3 a, h4 a, [class*='title'] a, [class*='headline'] a")
+            );
+            for (const el of nodes.slice(0, 30)) {
+              const text = (el as HTMLElement).innerText?.trim();
+              if (text && text.length > 8 && !seen.has(text)) {
+                seen.add(text);
+                headlines.push(text.slice(0, 120));
+              }
+            }
+          }
+
+          // Strategy 3: last resort — any <a> whose text looks like a headline
+          if (headlines.length < 3) {
+            const seen = new Set(headlines);
+            const links = Array.from(document.querySelectorAll("a"));
+            for (const a of links) {
+              const text = (a as HTMLElement).innerText?.trim();
+              if (text && text.length > 20 && text.length < 150 &&
+                  !text.includes("\n") && !seen.has(text)) {
+                seen.add(text);
+                headlines.push(text.slice(0, 120));
+                if (headlines.length >= 15) break;
+              }
+            }
+          }
+
+          return { headlines: headlines.slice(0, 15), count: headlines.length };
         });
 
       case "index_price":
-        return page.evaluate((): Record<string, unknown> => ({
-          price    : document.querySelector<HTMLElement>(
-            "[data-test='instrument-price-last']"
-          )?.innerText ?? null,
-          change   : document.querySelector<HTMLElement>(
-            "[data-test='instrument-price-change']"
-          )?.innerText ?? null,
-          changePct: document.querySelector<HTMLElement>(
-            "[data-test='instrument-price-change-percent']"
-          )?.innerText ?? null,
-        }));
+        return page.evaluate((): Record<string, unknown> => {
+          // Investing.com changes its selectors occasionally — try several
+          const pickFirst = (selectors: string[]): string | null => {
+            for (const sel of selectors) {
+              const text = document.querySelector<HTMLElement>(sel)?.innerText?.trim();
+              if (text && /[\d,.]/.test(text)) return text;
+            }
+            return null;
+          };
+          return {
+            price: pickFirst([
+              "[data-test='instrument-price-last']",
+              "[class*='last-price']",
+              "[class*='lastPrice']",
+              "[class*='priceSection'] [class*='price']",
+              "span[class*='text-5xl']",
+              ".instrument-price_last-price",
+            ]),
+            change: pickFirst([
+              "[data-test='instrument-price-change']",
+              "[class*='price-change'] [class*='change']",
+            ]),
+            changePct: pickFirst([
+              "[data-test='instrument-price-change-percent']",
+              "[class*='price-change'] [class*='percent']",
+            ]),
+          };
+        });
 
       default: {
         const body = await page.innerText("body").catch(() => "");

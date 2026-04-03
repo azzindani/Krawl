@@ -110,15 +110,42 @@ export class CrawlWorker {
 
       const contentType = resp.headers.get("content-type") ?? "";
       if (!contentType.includes("html")) {
-        // Non-HTML — treat as a file
+        // Non-HTML — determine extension from URL or Content-Type fallback
         const filename = path.basename(new URL(url).pathname);
-        const ext      = path.extname(filename).toLowerCase();
+        let ext = path.extname(filename).toLowerCase();
+
+        // For extensionless or unrecognised URLs, infer from Content-Type
+        // (e.g. arxiv.org/pdf/2604.02280 has no .pdf suffix)
+        if (!(DEFAULTS.COLLECTIBLE_EXTENSIONS as readonly string[]).includes(ext)) {
+          if (contentType.includes("pdf"))                               ext = ".pdf";
+          else if (contentType.includes("spreadsheetml") ||
+                   contentType.includes("excel"))                        ext = ".xlsx";
+          else if (contentType.includes("csv"))                         ext = ".csv";
+          else if (contentType.includes("zip"))                         ext = ".zip";
+          else if (contentType.includes("msword") ||
+                   contentType.includes("wordprocessingml"))             ext = ".docx";
+          else if (contentType.includes("presentationml") ||
+                   contentType.includes("powerpoint"))                   ext = ".pptx";
+        }
+
+        // Only record as a collectible file if the extension is useful
+        if ((DEFAULTS.COLLECTIBLE_EXTENSIONS as readonly string[]).includes(ext)) {
+          this.breaker.success(domain);
+          return {
+            task, status: "ok", mode: "crawl", url,
+            title: filename, links: [],
+            files: [{ url, text: filename, ext }],
+            extracted: { files: [{ url, text: filename, ext }] },
+            elapsedMs: Date.now() - t0,
+            group: task.group, extractedAt: now,
+          };
+        }
+
+        // Non-collectible binary/resource — skip silently
         this.breaker.success(domain);
         return {
           task, status: "ok", mode: "crawl", url,
-          title: filename, links: [],
-          files: [{ url, text: filename, ext }],
-          extracted: { files: [{ url, text: filename, ext }] },
+          title: filename, links: [], files: [], extracted: {},
           elapsedMs: Date.now() - t0,
           group: task.group, extractedAt: now,
         };
