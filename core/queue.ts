@@ -31,6 +31,7 @@ export interface Task {
   status      : TaskStatus;
   crawlDepth ?: number;
   collectFiles?: string[];
+  extractType ?: string;      // extraction hint for browser worker
   parentId   ?: string;       // for tasks spawned by crawl
   createdAt   : string;
   startedAt  ?: string;
@@ -48,6 +49,7 @@ export interface TaskInput {
   maxRetries   ?: number;
   crawl_depth  ?: number;
   collect_files?: string[];
+  extract_type ?: string;
 }
 
 let _idCounter = 0;
@@ -65,8 +67,9 @@ export function makeTask(input: TaskInput, parentId?: string): Task {
     retries   : 0,
     maxRetries: input.maxRetries ?? 3,
     status    : "pending",
-    crawlDepth: input.crawl_depth,
+    crawlDepth  : input.crawl_depth,
     collectFiles: input.collect_files,
+    extractType : input.extract_type,
     parentId,
     createdAt : new Date().toISOString(),
   };
@@ -136,8 +139,16 @@ export class TaskQueue {
     const depth = (parentTask.crawlDepth ?? 0) - 1;
     if (depth < 0) return [];
 
+    // Build a set of already-known URLs to avoid O(n²) linear scans
+    const knownUrls = new Set<string>([
+      ...this.done.keys(),
+      ...this.pending.map(t => t.url),
+    ]);
+
     const children: Task[] = [];
+    const toAdd   : Task[] = [];
     for (const url of urls) {
+      if (knownUrls.has(url)) continue;
       const child = makeTask({
         url,
         mode      : "auto",
@@ -146,8 +157,14 @@ export class TaskQueue {
         tags      : parentTask.tags,
         crawl_depth: depth,
       }, parentTask.id);
-      this.enqueue(child);
+      toAdd.push(child);
       children.push(child);
+      knownUrls.add(url); // prevent duplicates within this batch
+    }
+
+    if (toAdd.length > 0) {
+      this.pending.push(...toAdd);
+      this.pending.sort((a, b) => a.priority - b.priority);
     }
     return children;
   }

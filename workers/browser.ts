@@ -149,7 +149,7 @@ export class BrowserWorker {
     const t0        = Date.now();
     const now       = new Date().toISOString();
     const timeout   = DOMAIN_CONFIG[domain]?.timeout ?? DEFAULTS.BROWSER_TIMEOUT;
-    const extractType = (task as Task & { extractType?: string }).extractType ?? "auto";
+    const extractType = task.extractType ?? "auto";
 
     if (!this.breaker.allow(domain)) {
       return {

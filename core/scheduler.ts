@@ -232,7 +232,7 @@ export class Scheduler {
     // Crawl runs after HTTP/Browser to avoid saturating bandwidth
     const crawlResults = crawlTasks.length > 0
       ? await this.runCrawlPhase(crawlTasks).catch((e: Error) => {
-          console.error(`\n[Crawl phase error] ${e.message}`);
+          console.error(`\n[Crawl phase error] ${e.message}\n${e.stack}`);
           return [] as unknown[];
         })
       : [];
@@ -320,9 +320,14 @@ export class Scheduler {
       }
 
       // Spawn crawl-discovered tasks back into queue
-      if (task.crawlDepth && task.crawlDepth > 0) {
-        const newUrls = results.flatMap(r => r.links);
-        this.queue.spawnFromCrawl(task, newUrls);
+      try {
+        if (task.crawlDepth && task.crawlDepth > 0) {
+          const newUrls = results.flatMap(r => r.links);
+          this.queue.spawnFromCrawl(task, newUrls);
+        }
+      } catch (spawnErr) {
+        const e = spawnErr as Error;
+        console.error(`\n[Spawn error for ${task.name}] ${e.message}\n${e.stack}`);
       }
     }
 
