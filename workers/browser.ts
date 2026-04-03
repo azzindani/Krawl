@@ -285,13 +285,31 @@ export class BrowserWorker {
           );
           break;
         case "headlines":
-          await page.waitForSelector("article", { timeout: 10_000 });
+          // Broad selector: resolves as soon as any headline-like element
+          // appears (works for article-based sites AND h2/h3-link sites
+          // like CNBC Indonesia, Kompas, Detik, Liputan6, Antara).
+          await page.waitForSelector(
+            "article, h2 a, h3 a, h4 a, [class*='headline'], [class*='article-title'], [class*='news-title']",
+            { timeout: 15_000 }
+          ).catch(() => {});
           break;
         case "index_price":
-          await page.waitForSelector(
-            "[data-test='instrument-price-last']",
-            { timeout: 10_000 }
-          );
+          // Try multiple selectors — investing.com redesigns periodically
+          await page.waitForFunction(
+            () => {
+              const sels = [
+                "[data-test='instrument-price-last']",
+                "[class*='last-price']", "[class*='lastPrice']",
+                "span[class*='text-5xl']", ".instrument-price_last-price",
+                "[class*='priceSection'] [class*='price']",
+              ];
+              return sels.some(s => {
+                const el = document.querySelector(s);
+                return el && /[\d,.]/.test(el.textContent ?? "");
+              });
+            },
+            { timeout: 15_000 }
+          ).catch(() => {});
           break;
         default:
           await page.waitForLoadState("networkidle", { timeout: 8_000 })
