@@ -178,6 +178,17 @@ export class Router {
     return this.cache.get(this.domain(url))?.mode;
   }
 
+  /** Upgrade cached mode for a domain (e.g. http_curl → browser after failures). */
+  upgradeMode(url: string, newMode: TaskMode): void {
+    const d = this.domain(url);
+    const existing = this.cache.get(d);
+    if (existing && existing.mode !== newMode) {
+      console.log(`  ↑ Router cache: ${d} upgraded ${existing.mode} → ${newMode}`);
+      existing.mode = newMode;
+      this.saveCache();
+    }
+  }
+
   dumpCache(): Record<string, CachedEntry> {
     return Object.fromEntries(this.cache);
   }
