@@ -96,9 +96,9 @@ export class Timer {
     const remaining = total - completed;
     const etaSec  = rate > 0 ? remaining / rate : 0;
 
-    // Progress bar
+    // Progress bar — clamp to [0, 30] so repeat() never gets a negative arg
     const pct    = total > 0 ? completed / total : 0;
-    const filled = Math.round(pct * 30);
+    const filled = Math.min(30, Math.max(0, Math.round(pct * 30)));
     const bar    = "█".repeat(filled) + "░".repeat(30 - filled);
 
     // Mode summary

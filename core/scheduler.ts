@@ -313,10 +313,10 @@ export class Scheduler {
           `  ${ok ? "✓" : "✗"} [CRAWL] ${r.url.slice(0, 50).padEnd(52)} ${s}s` +
           `  links=${r.links.length} files=${r.files.length}`
         );
+        allResults.push(r);
         this.timer.tick("crawl", "crawl",
           new URL(r.url).hostname, r.elapsedMs, !ok);
         this.timer.display();
-        allResults.push(r);
       }
 
       // Spawn crawl-discovered tasks back into queue

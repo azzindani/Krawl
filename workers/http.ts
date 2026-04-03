@@ -74,18 +74,34 @@ async function fetchJson(url: string, headers: Record<string, string>): Promise<
 
 function parseYahooChart(body: unknown): Record<string, unknown> {
   try {
-    const r    = (body as Record<string, unknown>);
-    const chart = r["chart"] as Record<string, unknown>;
+    const r      = (body as Record<string, unknown>);
+    const chart  = r["chart"] as Record<string, unknown>;
     const result = (chart["result"] as unknown[])?.[0] as Record<string, unknown>;
     const meta   = result?.["meta"] as Record<string, unknown> ?? {};
+
+    const price     = meta["regularMarketPrice"]    as number | undefined;
+    const prevClose = meta["chartPreviousClose"]    as number | undefined;
+
+    // Use API fields if available; otherwise calculate from price/prevClose
+    const change = (meta["regularMarketChange"] != null)
+      ? (meta["regularMarketChange"] as number)
+      : (price != null && prevClose != null)
+        ? +(price - prevClose).toFixed(4)
+        : null;
+    const changePct = (meta["regularMarketChangePercent"] != null)
+      ? (meta["regularMarketChangePercent"] as number)
+      : (price != null && prevClose != null && prevClose !== 0)
+        ? +((price - prevClose) / prevClose * 100).toFixed(4)
+        : null;
+
     return {
-      price    : meta["regularMarketPrice"],
-      change   : meta["regularMarketChange"],
-      changePct: meta["regularMarketChangePercent"],
-      prevClose: meta["chartPreviousClose"],
-      currency : meta["currency"] ?? "IDR",
+      price,
+      change,
+      changePct,
+      prevClose,
+      currency : meta["currency"]     ?? "IDR",
       exchange : meta["exchangeName"] ?? "",
-      company  : meta["longName"] ?? "",
+      company  : meta["longName"]     ?? "",
     };
   } catch {
     return {};
