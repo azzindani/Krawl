@@ -7,22 +7,35 @@
     "krawl": "./krawl.ts"
   },
   "scripts": {
-    "start"  : "tsx krawl.ts",
-    "dev"    : "tsx watch krawl.ts",
-    "typecheck": "tsc --noEmit"
+    "start": "tsx krawl.ts",
+    "dev": "tsx watch krawl.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --ext .ts --ignore-pattern dist --ignore-pattern node_modules",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:smoke": "vitest run tests/smoke",
+    "test:integration": "vitest run tests/integration",
+    "test:e2e": "vitest run tests/e2e",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest"
   },
   "dependencies": {
-    "playwright"        : "latest",
-    "better-sqlite3"    : "latest",
-    "zod"               : "latest",
-    "p-limit"           : "latest",
-    "pdf-parse"         : "latest"
+    "better-sqlite3": "latest",
+    "p-limit": "latest",
+    "pdf-parse": "latest",
+    "playwright": "latest",
+    "zod": "latest"
   },
   "devDependencies": {
-    "tsx"                      : "latest",
-    "typescript"               : "latest",
-    "@types/node"              : "latest",
-    "@types/better-sqlite3"    : "latest",
-    "@types/pdf-parse"         : "latest"
+    "@eslint/js": "^10.0.1",
+    "@types/better-sqlite3": "latest",
+    "@types/node": "latest",
+    "@types/pdf-parse": "latest",
+    "@vitest/coverage-v8": "^4.1.4",
+    "eslint": "^10.2.0",
+    "tsx": "latest",
+    "typescript": "latest",
+    "typescript-eslint": "^8.58.1",
+    "vitest": "^4.1.4"
   }
 }
