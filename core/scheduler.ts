@@ -9,7 +9,7 @@ import { TaskQueue, Task, makeTask, TaskInput } from "./queue.js";
 import { Router } from "./router.js";
 import { Checkpoint } from "./checkpoint.js";
 import { Timer } from "./timer.js";
-import { HttpWorker } from "../workers/http.js";
+import { HttpWorker, HttpResult } from "../workers/http.js";
 import { BrowserWorker } from "../workers/browser.js";
 import { CrawlWorker } from "../workers/crawl.js";
 import { CircuitBreaker } from "../resilience/circuit_breaker.js";
@@ -211,9 +211,7 @@ export class Scheduler {
     console.log(`  Blocked : ${blocked.length}`);
     console.log("");
 
-    // Run HTTP and Browser concurrently, Crawl sequentially.
-    // Each phase catches its own errors so a browser launch failure
-    // doesn't discard already-computed HTTP results.
+    // HTTP and Browser run concurrently; crawl runs after to avoid saturating bandwidth.
     const [httpResults, browserResults] = await Promise.all([
       httpTasks.length > 0
         ? this.runHttpPhase(httpTasks).catch((e: Error) => {
@@ -229,7 +227,24 @@ export class Scheduler {
         : Promise.resolve([] as unknown[]),
     ]);
 
-    // Crawl runs after HTTP/Browser to avoid saturating bandwidth
+    // Identify http_curl tasks where every result failed → upgrade to browser.
+    // Filter their failed results out of httpResults so they aren't double-indexed.
+    const upgradedTasks = this.upgradeFailedCurlTasks(
+      httpResults as HttpResult[],
+      httpTasks,
+    );
+    const upgradedIds = new Set(upgradedTasks.map(t => t.id));
+
+    // Retry upgraded tasks via browser (small sequential step after main phases)
+    let upgradeResults: unknown[] = [];
+    if (upgradedTasks.length > 0) {
+      console.log(`\n  Retrying ${upgradedTasks.length} task(s) via browser (http_curl → browser upgrade)`);
+      upgradeResults = await this.runBrowserPhase(upgradedTasks).catch((e: Error) => {
+        console.error(`\n[Browser upgrade phase error] ${e.message}`);
+        return [] as unknown[];
+      });
+    }
+
     const crawlResults = crawlTasks.length > 0
       ? await this.runCrawlPhase(crawlTasks).catch((e: Error) => {
           console.error(`\n[Crawl phase error] ${e.message}\n${e.stack}`);
@@ -237,11 +252,50 @@ export class Scheduler {
         })
       : [];
 
-    // Process all results
-    const allResults = [...httpResults, ...browserResults, ...crawlResults];
+    // Exclude failed http_curl results for tasks being retried — browser result wins.
+    const filteredHttpResults = (httpResults as HttpResult[]).filter(
+      r => !(r.mode === "http_curl" && r.status !== "ok" && upgradedIds.has(r.task.id))
+    );
+
+    const allResults = [
+      ...filteredHttpResults, ...browserResults, ...upgradeResults, ...crawlResults,
+    ];
     for (const result of allResults) {
       this.processResult(result as Record<string, unknown>);
     }
+  }
+
+  /**
+   * After HTTP phase: find http_curl tasks where ALL attempts failed,
+   * upgrade their domain in the router cache to "browser", and return
+   * cloned tasks ready for the browser phase.
+   */
+  private upgradeFailedCurlTasks(
+    results: HttpResult[],
+    httpTasks: Task[],
+  ): Task[] {
+    // Group results by task id
+    const resultsByTask = new Map<string, HttpResult[]>();
+    for (const r of results) {
+      if (r.mode !== "http_curl") continue;
+      const id = r.task.id;
+      if (!resultsByTask.has(id)) resultsByTask.set(id, []);
+      resultsByTask.get(id)!.push(r);
+    }
+
+    const upgraded: Task[] = [];
+    for (const task of httpTasks) {
+      if (task.mode !== "http_curl") continue;
+      const taskResults = resultsByTask.get(task.id) ?? [];
+      const allFailed = taskResults.length > 0 &&
+        taskResults.every(r => r.status !== "ok");
+      if (allFailed) {
+        this.router.upgradeMode(task.url, "browser");
+        upgraded.push({ ...task, mode: "browser" });
+      }
+    }
+
+    return upgraded;
   }
 
   private async runHttpPhase(tasks: Task[]): Promise<unknown[]> {
@@ -302,8 +356,9 @@ export class Scheduler {
     this.timer.startPhase("crawl", tasks.length);
 
     const allResults: unknown[] = [];
+    const crawlLimit = pLimit(DEFAULTS.CRAWL_CONCURRENCY);
 
-    for (const task of tasks) {
+    await Promise.all(tasks.map(task => crawlLimit(async () => {
       const results = await this.crawlWorker.run(task);
 
       for (const r of results) {
@@ -318,11 +373,7 @@ export class Scheduler {
           new URL(r.url).hostname, r.elapsedMs, !ok);
         this.timer.display();
       }
-
-      // Note: depth-based crawling is handled inside CrawlWorker's BFS.
-      // spawnFromCrawl is NOT called here — runAllPools() doesn't loop,
-      // so any tasks added to the queue mid-phase would never execute.
-    }
+    })));
 
     this.timer.endPhase("crawl");
     return allResults;

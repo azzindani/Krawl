@@ -50,6 +50,16 @@ export class CrawlWorker {
     const maxDepth = task.crawlDepth ?? 0;
     const maxPages = DEFAULTS.MAX_CRAWL_PAGES;
 
+    // Restrict BFS to the same path prefix as the starting URL.
+    // e.g. starting at /id/statistik/Default.aspx → only follow /id/statistik/*
+    // This prevents accidentally crawling an entire site when only a sub-section
+    // is relevant (BI statistics, arxiv paper lists, OJK data pages, etc.)
+    let basePath = "/";
+    try {
+      const p = new URL(task.url).pathname;
+      basePath = p.includes("/") ? p.replace(/\/[^/]*$/, "/") || "/" : "/";
+    } catch { /* keep "/" */ }
+
     // BFS queue: [url, depth]
     const queue: Array<[string, number]> = [[task.url, 0]];
     this.visited.add(task.url);
@@ -66,10 +76,13 @@ export class CrawlWorker {
 
       if (result.status === "ok" && depth < maxDepth) {
         for (const link of result.links) {
-          if (!this.visited.has(link)) {
-            this.visited.add(link);
-            queue.push([link, depth + 1]);
-          }
+          if (this.visited.has(link)) continue;
+          // Stay within the starting URL's path prefix
+          try {
+            if (!new URL(link).pathname.startsWith(basePath)) continue;
+          } catch { continue; }
+          this.visited.add(link);
+          queue.push([link, depth + 1]);
         }
       }
     }

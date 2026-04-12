@@ -375,10 +375,12 @@ export class Indexer {
 
   private _extractContent(result: Record<string, unknown>): string {
     const ext = result["extracted"] as Record<string, unknown> | null ?? {};
+    // headlines is an array — join with newlines so FTS tokenises each headline
+    const headlines = ext["headlines"] as string[] | undefined;
     return (
       (ext["text_preview"] as string) ??
-      (ext["preview"] as string) ??
-      String(ext["headlines"] ?? "") ??
+      (ext["preview"]      as string) ??
+      headlines?.join("\n") ??
       ""
     ).slice(0, 50_000);
   }
