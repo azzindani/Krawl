@@ -32,6 +32,7 @@ export interface Task {
   crawlDepth ?: number;
   collectFiles?: string[];
   extractType ?: string;      // extraction hint for browser worker
+  selectors  ?: Record<string, string>;  // key → CSS selector for adaptive extraction
   parentId   ?: string;       // for tasks spawned by crawl
   createdAt   : string;
   startedAt  ?: string;
@@ -50,6 +51,7 @@ export interface TaskInput {
   crawl_depth  ?: number;
   collect_files?: string[];
   extract_type ?: string;
+  selectors    ?: Record<string, string>;
 }
 
 let _idCounter = 0;
@@ -70,6 +72,7 @@ export function makeTask(input: TaskInput, parentId?: string): Task {
     crawlDepth  : input.crawl_depth,
     collectFiles: input.collect_files,
     extractType : input.extract_type,
+    selectors   : input.selectors,
     parentId,
     createdAt : new Date().toISOString(),
   };

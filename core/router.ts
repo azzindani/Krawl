@@ -3,7 +3,8 @@
 // Probes URL once, caches decision per domain forever
 
 import fs from "fs";
-import { DEFAULTS, DOMAIN_CONFIG } from "../config/defaults.js";
+import "../workers/tls.js";   // side-effect: Chrome TLS for all probe fetches
+import { DEFAULTS, DOMAIN_CONFIG, BOT_BODY_PATTERNS } from "../config/defaults.js";
 import type { TaskMode } from "./queue.js";
 
 interface ProbeSignals {
@@ -14,6 +15,9 @@ interface ProbeSignals {
   isStaticHtml    : boolean;
   cloudflareBlock : boolean;
   turnstile       : boolean;
+  // Named bot-wall services detected in the response
+  botWall         : boolean;
+  botWallService  : string;
   contentType     : string;
   responseTimeMs  : number;
 }
@@ -24,6 +28,51 @@ interface CachedEntry {
   cachedAt    : string;
   sampleUrl   : string;
   hitCount    : number;
+}
+
+// Returns the service name if a known bot-wall is detected, "" otherwise.
+function detectBotWall(bodyLower: string, resp: globalThis.Response): string {
+  // DataDome — cookie/header injection + body string
+  if (
+    resp.headers.get("x-datadome-cid") !== null ||
+    bodyLower.includes("datadome") ||
+    bodyLower.includes("dd_referrer")
+  ) return "DataDome";
+
+  // PerimeterX / HUMAN
+  if (
+    bodyLower.includes("perimeterx") ||
+    bodyLower.includes("_pxhd") ||
+    bodyLower.includes("px_blocked") ||
+    bodyLower.includes("human security")
+  ) return "PerimeterX";
+
+  // Akamai Bot Manager
+  if (
+    (bodyLower.includes("akamai") && bodyLower.includes("bot")) ||
+    resp.headers.get("x-check-cacheable") !== null
+  ) return "Akamai";
+
+  // Kasada
+  if (
+    bodyLower.includes("kasada") ||
+    bodyLower.includes("ips.js") ||
+    bodyLower.includes("kpsdk")
+  ) return "Kasada";
+
+  // Imperva / Incapsula
+  if (
+    bodyLower.includes("incapsula") ||
+    bodyLower.includes("imperva") ||
+    bodyLower.includes("visid_incap") ||
+    resp.headers.get("x-iinfo") !== null
+  ) return "Imperva";
+
+  // Generic bot-wall body signals
+  const genericBot = BOT_BODY_PATTERNS.some(p => bodyLower.includes(p));
+  if (genericBot && [403, 429, 503].includes(resp.status)) return "generic";
+
+  return "";
 }
 
 export class Router {
@@ -95,6 +144,10 @@ export class Router {
           bodyLower.includes("challenges.cloudflare.com/turnstile")
         );
 
+      // Detect named bot-protection services
+      const botWallService = detectBotWall(bodyLower, resp);
+      const botWall        = botWallService !== "";
+
       const isJson =
         contentType.includes("json") ||
         body.trim().startsWith("{") ||
@@ -114,12 +167,14 @@ export class Router {
 
       return {
         statusCode     : resp.status,
-        httpWorks      : resp.status === 200 && !cloudflareBlock,
+        httpWorks      : resp.status === 200 && !cloudflareBlock && !botWall,
         isJson,
         isSpa,
         isStaticHtml,
         cloudflareBlock,
         turnstile,
+        botWall,
+        botWallService,
         contentType,
         responseTimeMs,
       };
@@ -128,6 +183,7 @@ export class Router {
         statusCode: 0, httpWorks: false,
         isJson: false, isSpa: false, isStaticHtml: false,
         cloudflareBlock: false, turnstile: false,
+        botWall: false, botWallService: "",
         contentType: "", responseTimeMs: Date.now() - t0,
       };
     }
@@ -135,7 +191,8 @@ export class Router {
 
   private decide(signals: ProbeSignals): TaskMode {
     if (signals.turnstile)                              return "blocked";
-    if (signals.cloudflareBlock && !signals.turnstile)  return "http_curl";
+    if (signals.cloudflareBlock && !signals.turnstile)  return "browser";  // try browser before giving up
+    if (signals.botWall)                                return "browser";  // DataDome/PX/Akamai — browser may pass
     if (signals.isJson && signals.httpWorks)            return "http_json";
     if (signals.isSpa)                                  return "browser";
     if (signals.isStaticHtml && signals.httpWorks)      return "crawl";

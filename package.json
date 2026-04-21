@@ -24,6 +24,7 @@
     "p-limit": "latest",
     "pdf-parse": "latest",
     "playwright": "latest",
+    "undici": "latest",
     "zod": "latest"
   },
   "devDependencies": {
