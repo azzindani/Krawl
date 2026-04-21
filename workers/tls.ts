@@ -3,14 +3,10 @@
 // by swapping Node's global undici dispatcher for one with the correct
 // cipher-suite order, ALPN, and signature algorithms.
 //
-// Import this module once (side-effectful) before any fetch() is called.
-// ES-module semantics guarantee it runs exactly once even if imported from
-// multiple files.
+// Uses dynamic import + try/catch so a version mismatch between undici and
+// the host Node.js never crashes the process — the engine just falls back to
+// default TLS silently.
 
-import { setGlobalDispatcher, Agent } from "undici";
-
-// Chrome 120 TLS 1.2 cipher preference order (TLS 1.3 suites are always
-// negotiated by OpenSSL; listing them here keeps the order correct).
 const CHROME_CIPHERS = [
   "TLS_AES_128_GCM_SHA256",
   "TLS_AES_256_GCM_SHA384",
@@ -29,7 +25,6 @@ const CHROME_CIPHERS = [
   "AES256-SHA",
 ].join(":");
 
-// Chrome 120 signature algorithms
 const CHROME_SIGALGS = [
   "ecdsa_secp256r1_sha256",
   "rsa_pss_rsae_sha256",
@@ -41,17 +36,25 @@ const CHROME_SIGALGS = [
   "rsa_pkcs1_sha512",
 ].join(":");
 
-setGlobalDispatcher(
-  new Agent({
-    connect: {
-      ciphers          : CHROME_CIPHERS,
-      honorCipherOrder : false,       // Chrome lets the server decide
-      minVersion       : "TLSv1.2",
-      sigalgs          : CHROME_SIGALGS,
-      ALPNProtocols    : ["h2", "http/1.1"],
-    },
-    // Keep connections alive — Chrome does this by default
-    keepAliveTimeout    : 4_000,
-    keepAliveMaxTimeout : 600_000,
-  })
-);
+// Top-level await — safe in Node 18+ ESM modules.
+// Dynamic import ensures the undici module-load error is catchable.
+try {
+  const { setGlobalDispatcher, Agent } = await import("undici");
+  setGlobalDispatcher(
+    new Agent({
+      connect: {
+        ciphers         : CHROME_CIPHERS,
+        honorCipherOrder: false,
+        minVersion      : "TLSv1.2",
+        sigalgs         : CHROME_SIGALGS,
+        ALPNProtocols   : ["h2", "http/1.1"],
+      },
+      keepAliveTimeout    : 4_000,
+      keepAliveMaxTimeout : 600_000,
+    })
+  );
+} catch {
+  // Degraded mode: default Node.js TLS used instead of Chrome fingerprint.
+}
+
+export {};  // mark as ESM module so top-level await is valid
