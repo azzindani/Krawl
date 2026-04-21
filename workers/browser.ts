@@ -15,7 +15,7 @@ import { CircuitBreaker } from "../resilience/circuit_breaker.js";
 import { RateLimiter } from "../resilience/rate_limiter.js";
 import { pickProfile, type BrowserProfile } from "./fingerprint.js";
 import { SelectorTracker } from "../selectors/tracker.js";
-import { similarity, type ElementFingerprint } from "../selectors/similarity.js";
+import type { ElementFingerprint } from "../selectors/similarity.js";
 import type { Task } from "../core/queue.js";
 import type Database from "better-sqlite3";
 

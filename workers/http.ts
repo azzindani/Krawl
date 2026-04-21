@@ -4,7 +4,7 @@
 
 import "./tls.js";   // side-effect: installs Chrome cipher suite globally
 import pLimit from "p-limit";
-import { DEFAULTS, DOMAIN_CONFIG, BOT_BODY_PATTERNS } from "../config/defaults.js";
+import { DEFAULTS, BOT_BODY_PATTERNS } from "../config/defaults.js";
 import { withRetry } from "../resilience/retry.js";
 import { CircuitBreaker } from "../resilience/circuit_breaker.js";
 import { RateLimiter } from "../resilience/rate_limiter.js";
@@ -152,7 +152,7 @@ export class HttpWorker {
     try {
       const headers = mode === "http_curl" ? CURL_HEADERS : BASE_HEADERS;
 
-      const { ok, status, body, contentType } = await withRetry(
+      const { ok, status, body } = await withRetry(
         () => fetchJson(task.url, headers),
         task.maxRetries,
         (attempt, err, waitMs) => {
