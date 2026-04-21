@@ -157,6 +157,26 @@ export function initSchema(db: Database.Database): void {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_endpoints_url ON endpoints(url);
 
+    -- ── Adaptive selector store ───────────────────────────────────
+    -- Persists CSS selector + element fingerprint per (domain, key) so the
+    -- engine can self-heal when a site's layout changes between runs.
+
+    CREATE TABLE IF NOT EXISTS selector_store (
+      domain      TEXT    NOT NULL,
+      key         TEXT    NOT NULL,
+      selector    TEXT    NOT NULL,
+      tag         TEXT    NOT NULL DEFAULT '',
+      text_sample TEXT    NOT NULL DEFAULT '',
+      classes     TEXT    NOT NULL DEFAULT '',
+      id          TEXT    NOT NULL DEFAULT '',
+      depth       INTEGER NOT NULL DEFAULT 0,
+      parent_tag  TEXT    NOT NULL DEFAULT '',
+      attrs       TEXT    NOT NULL DEFAULT '[]',
+      success_at  TEXT    NOT NULL,
+      hit_count   INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY (domain, key)
+    );
+
     -- ── FTS5 virtual tables ───────────────────────────────────────
 
     CREATE VIRTUAL TABLE IF NOT EXISTS fts_pages

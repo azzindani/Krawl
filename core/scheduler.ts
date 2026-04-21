@@ -91,6 +91,7 @@ export class Scheduler {
       this.config.browserContexts,
       this.breaker,
       this.limiter,
+      this.db,
     );
 
     this.crawlWorker = new CrawlWorker(this.breaker, this.limiter);

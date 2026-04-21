@@ -1,10 +1,10 @@
 // workers/http.ts
 // HTTP worker — handles http_json and http_curl modes
-// Uses built-in fetch (Node 18+)
-// No external HTTP library needed
+// Uses built-in fetch (Node 18+) with Chrome-like TLS fingerprint
 
+import "./tls.js";   // side-effect: installs Chrome cipher suite globally
 import pLimit from "p-limit";
-import { DEFAULTS, DOMAIN_CONFIG } from "../config/defaults.js";
+import { DEFAULTS, BOT_BODY_PATTERNS } from "../config/defaults.js";
 import { withRetry } from "../resilience/retry.js";
 import { CircuitBreaker } from "../resilience/circuit_breaker.js";
 import { RateLimiter } from "../resilience/rate_limiter.js";
@@ -38,13 +38,17 @@ const BASE_HEADERS = {
 
 const CURL_HEADERS = {
   ...BASE_HEADERS,
-  "Accept"          : "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-  "sec-ch-ua"       : '"Not_A Brand";v="8", "Chromium";v="120"',
-  "sec-ch-ua-mobile": "?0",
+  "Accept"            : "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+  "Accept-Encoding"   : "gzip, deflate, br",
+  "sec-ch-ua"         : '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+  "sec-ch-ua-mobile"  : "?0",
   "sec-ch-ua-platform": '"Windows"',
-  "sec-fetch-dest"  : "document",
-  "sec-fetch-mode"  : "navigate",
-  "sec-fetch-site"  : "none",
+  "sec-fetch-dest"    : "document",
+  "sec-fetch-mode"    : "navigate",
+  "sec-fetch-site"    : "none",
+  "sec-fetch-user"    : "?1",
+  "Upgrade-Insecure-Requests": "1",
+  "Cache-Control"     : "max-age=0",
 };
 
 function domainOf(url: string): string {
@@ -148,7 +152,7 @@ export class HttpWorker {
     try {
       const headers = mode === "http_curl" ? CURL_HEADERS : BASE_HEADERS;
 
-      const { ok, status, body, contentType } = await withRetry(
+      const { ok, status, body } = await withRetry(
         () => fetchJson(task.url, headers),
         task.maxRetries,
         (attempt, err, waitMs) => {
@@ -168,6 +172,22 @@ export class HttpWorker {
           elapsedMs, error: `HTTP ${status}`,
           group: task.group, extractedAt: now,
         };
+      }
+
+      // Bot-wall detection — if the body matches known protection patterns,
+      // mark as blocked so the scheduler can upgrade the mode to "browser".
+      if (typeof body === "string") {
+        const lower = body.toLowerCase();
+        const botWall = BOT_BODY_PATTERNS.some(p => lower.includes(p));
+        if (botWall) {
+          this.breaker.failure(domain);
+          return {
+            task, status: "blocked", mode, url: task.url,
+            title: "", extracted: {}, links: [],
+            elapsedMs, error: "bot-wall detected in response body",
+            group: task.group, extractedAt: now,
+          };
+        }
       }
 
       this.breaker.success(domain);

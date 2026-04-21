@@ -85,6 +85,24 @@ export const DEFAULTS = {
   ],
 } as const;
 
+// Body-text fragments that indicate a bot-wall is active.
+// Used by the router probe and the HTTP worker to detect protection services
+// that return 200 with a challenge page instead of a proper HTTP error.
+export const BOT_BODY_PATTERNS: string[] = [
+  "please enable cookies",
+  "enable javascript",
+  "checking your browser",
+  "browser check",
+  "ddos-guard",
+  "ray id",
+  "security check",
+  "access denied",
+  "your ip has been blocked",
+  "bot protection",
+  "automated access",
+  "suspicious activity",
+];
+
 // Per-domain overrides
 export const DOMAIN_CONFIG: Record<string, {
   rps?: number;
