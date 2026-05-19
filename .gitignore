@@ -7,3 +7,13 @@ krawl_checkpoint*.json
 router_cache.json
 krawl_exports/
 krawl_files/
+
+# Docker host bind mounts — created by `docker compose up`.
+data/
+exports/
+
+# Local deploy config — never commit. Template lives in .env.example.
+.env
+.env.*
+!.env.example
+tokens.json

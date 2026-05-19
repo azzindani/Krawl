@@ -1,0 +1,40 @@
+# Keep build context small + reproducible.
+.git
+.github
+.claude
+node_modules
+dist
+coverage
+test-results
+
+# Local data — mount at runtime, never bake into the image.
+data
+exports
+krawl.db
+krawl.db-shm
+krawl.db-wal
+krawl_output.jsonl
+krawl_checkpoint*.json
+router_cache.json
+krawl_exports
+krawl_files
+
+# Local editor / OS junk
+.DS_Store
+*.local
+*.log
+.idea
+.vscode
+
+# Docker itself
+Dockerfile
+.dockerignore
+
+# Local deploy config — never bake into the image. Mount at runtime instead.
+.env
+.env.*
+!.env.example
+
+# Notebooks / docs not needed at runtime
+*.ipynb
+docs

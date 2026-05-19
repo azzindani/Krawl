@@ -1,0 +1,60 @@
+# Caddy reverse proxy + automatic HTTPS for Krawl.
+#
+# Variables (set in .env, read by docker-compose.yml):
+#   KRAWL_DOMAIN      — public domain pointing at this VPS (DNS A record)
+#   KRAWL_ACME_EMAIL  — contact email for Let's Encrypt registration
+#   KRAWL_BASIC_USER  — username for /files Basic Auth
+#   KRAWL_BASIC_HASH  — bcrypt hash for /files Basic Auth
+#                        (generate with `docker run --rm caddy:2-alpine \
+#                                          caddy hash-password --plaintext 'pw'`)
+#
+# Routing:
+#   /mcp                    → krawl:3333  (JSON-RPC, Bearer auth in-app)
+#   /health                 → krawl:3333  (unauthenticated liveness)
+#   /files · /files/*       → /srv/files  (read-only CSV exports)  [basicauth]
+#
+# Caddy terminates TLS, forwards Authorization: Bearer untouched for /mcp,
+# and gates the /files browser with HTTP Basic Auth.
+{
+    email {$KRAWL_ACME_EMAIL}
+}
+
+{$KRAWL_DOMAIN} {
+    encode zstd gzip
+
+    # MCP JSON-RPC. The Bearer check lives inside the app (src/mcp/http-server.ts);
+    # Caddy just forwards the Authorization header untouched.
+    @mcp path /mcp /mcp/* /health
+    handle @mcp {
+        reverse_proxy krawl:3333 {
+            flush_interval -1
+            header_up Host {host}
+            transport http {
+                read_timeout  10m
+                write_timeout 10m
+            }
+        }
+    }
+
+    # CSV export browser. Behind Basic Auth — gives a clickable HTML index
+    # at /files/ so you can download exports from a browser without SCP.
+    # `browse` shows a directory listing; remove it for read-only deep links.
+    @files path /files /files/*
+    handle @files {
+        basicauth {
+            {$KRAWL_BASIC_USER} {$KRAWL_BASIC_HASH}
+        }
+        root * /srv
+        file_server browse
+    }
+
+    # Everything else returns a small landing message — no public UI exists.
+    handle {
+        respond "Krawl MCP — POST /mcp with Authorization: Bearer <token>. See /health." 200
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}

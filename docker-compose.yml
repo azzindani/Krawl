@@ -1,0 +1,117 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Krawl — VPS-friendly compose stack.
+#
+# Two services:
+#   krawl  — the engine. KRAWL_MODE picks shape: mcp (HTTP API) | loop | once.
+#   caddy  — optional TLS terminator + reverse proxy, opt-in via profile "tls"
+#
+# Quick start (local, no TLS, MCP exposed on :3333):
+#   cp .env.example .env
+#   docker compose up -d --build
+#   curl http://localhost:3333/health
+#   → MCP JSON-RPC: http://localhost:3333/mcp  (Bearer auth)
+#
+# VPS deploy with auto-HTTPS (Let's Encrypt via Caddy):
+#   1. Point your DNS at the VPS:  A  krawl.casava.space -> <vps-ip>
+#   2. Set KRAWL_DOMAIN=krawl.casava.space and KRAWL_ACME_EMAIL=you@x in .env
+#   3. Set KRAWL_API_KEY=sk-<long-random> (Bearer for /mcp)
+#   4. docker compose --profile tls up -d --build
+#   → MCP:    https://krawl.casava.space/mcp
+#   → Health: https://krawl.casava.space/health
+#   → Files:  https://krawl.casava.space/files/   (Basic Auth, browses /exports)
+#
+# Scheduler mode (no MCP, just runs the task file on a cadence):
+#   docker compose run -d --name krawl-scheduler \
+#     -e KRAWL_MODE=loop -e KRAWL_INTERVAL_SECONDS=21600 krawl
+#
+# Persistence:
+#   ./data    → /data    (SQLite DB, JSONL, checkpoints, router cache)
+#   ./tasks   → /tasks   (read-only task JSON/TXT input)
+#   ./exports → /exports (CSV exports written by krawl_export / --export)
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+  krawl:
+    build:
+      context: .
+      args:
+        SKIP_TESTS: ${KRAWL_SKIP_TESTS:-1}
+    image: krawl:latest
+    container_name: krawl
+    restart: unless-stopped
+    environment:
+      KRAWL_MODE:              ${KRAWL_MODE:-mcp}
+      KRAWL_PORT:              ${KRAWL_PORT:-3333}
+      KRAWL_HOST:              0.0.0.0
+      KRAWL_TASKS:             ${KRAWL_TASKS:-/tasks/financial.json}
+      KRAWL_INTERVAL_SECONDS:  ${KRAWL_INTERVAL_SECONDS:-21600}
+      KRAWL_HTTP_CONCURRENCY:  ${KRAWL_HTTP_CONCURRENCY:-5}
+      KRAWL_BROWSER_CONTEXTS:  ${KRAWL_BROWSER_CONTEXTS:-3}
+      KRAWL_DATA_DIR:          /data
+      KRAWL_EXPORTS_DIR:       /exports
+      # Auth — pick ONE strategy. tokens.json (file) wins if multiple are set.
+      KRAWL_TOKENS_FILE:       ${KRAWL_TOKENS_FILE:-}
+      KRAWL_TOKENS:            ${KRAWL_TOKENS:-}
+      KRAWL_API_KEY:           ${KRAWL_API_KEY:-}
+      # Optional — only consumed by KRAWL_MODE=query / export.
+      KRAWL_QUERY:             ${KRAWL_QUERY:-}
+      KRAWL_EXPORT_TARGET:     ${KRAWL_EXPORT_TARGET:-all}
+    ports:
+      # Bound to 127.0.0.1 only — the shared caddy-router reaches the
+      # container by name on krawl_net, so there's no need to publish on
+      # 0.0.0.0. The host port (KRAWL_HOST_PORT) is just for local debugging
+      # — set it to something free on the VPS (Folio already owns 3333).
+      - "127.0.0.1:${KRAWL_HOST_PORT:-3344}:3333"
+    volumes:
+      - ./data:/data
+      - ./tasks:/tasks:ro
+      - ./exports:/exports
+      # Mount tokens.json read-only when KRAWL_TOKENS_FILE is set. Optional —
+      # comment out if you use KRAWL_TOKENS (inline) or KRAWL_API_KEY instead.
+      - ./tokens.json:/home/pwuser/tokens.json:ro
+    # Chromium needs more than the 64MB Docker gives /dev/shm by default —
+    # without this you get "Target closed" crashes on heavy pages.
+    shm_size: 1gb
+    networks:
+      - krawl_net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:${KRAWL_PORT:-3333}/health >/dev/null 2>&1 || pgrep -f 'bun.*krawl' >/dev/null || exit 1"]
+      interval: 60s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: krawl-caddy
+    profiles: ["tls"]
+    restart: unless-stopped
+    depends_on:
+      - krawl
+    environment:
+      KRAWL_DOMAIN:     ${KRAWL_DOMAIN:?set KRAWL_DOMAIN in .env (e.g. krawl.casava.space)}
+      KRAWL_ACME_EMAIL: ${KRAWL_ACME_EMAIL:?set KRAWL_ACME_EMAIL in .env for Let's Encrypt registration}
+      # HTTP Basic Auth in front of the /files browser. Required by the
+      # Caddyfile — empty values make Caddy fail to start. Remove the
+      # basicauth block in caddy/Caddyfile to disable entirely.
+      KRAWL_BASIC_USER: ${KRAWL_BASIC_USER:-}
+      KRAWL_BASIC_HASH: ${KRAWL_BASIC_HASH:-}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Read-only mount of the exports dir so Caddy serves CSVs from
+      # /files/ behind Basic Auth.
+      - ./exports:/srv/files:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - krawl_net
+
+networks:
+  krawl_net:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:
