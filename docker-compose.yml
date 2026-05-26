@@ -71,6 +71,15 @@ services:
     # Chromium needs more than the 64MB Docker gives /dev/shm by default —
     # without this you get "Target closed" crashes on heavy pages.
     shm_size: 1gb
+    # Hard ceiling so a runaway scrape can't crater a co-tenanted VPS.
+    # The VPS has no swap, so an unbounded container = instant OOM. 512m
+    # holds the MCP server idle (~120m) plus a single Chromium scrape with
+    # headroom; raise if you genuinely run multiple concurrent browsers.
+    mem_limit: 512m
+    memswap_limit: 512m
+    # Cap fork count — Chromium spawns helper processes per page/context
+    # and a runaway loop could exhaust the host pids cgroup.
+    pids_limit: 200
     networks:
       - krawl_net
     healthcheck:

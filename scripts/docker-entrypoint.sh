@@ -3,13 +3,15 @@
 # Krawl container entrypoint — dispatch on KRAWL_MODE.
 #
 # Modes:
-#   mcp      MCP HTTP server on :KRAWL_PORT (Bearer auth, JSON-RPC at /mcp)
-#   once     run KRAWL_TASKS once, exit (host-cron / k8s Job)
-#   loop     run, sleep KRAWL_INTERVAL_SECONDS, repeat forever
-#   query    one-shot SQL: --query "$KRAWL_QUERY"
-#   stats    one-shot --stats
-#   export   one-shot --export "$KRAWL_EXPORT_TARGET" (default: all)
-#   shell    drop to bash (debug)
+#   mcp          MCP HTTP server on :KRAWL_PORT (Bearer auth, JSON-RPC at /mcp)
+#   once         run KRAWL_TASKS once, exit (host-cron / k8s Job)
+#   loop         run, sleep KRAWL_INTERVAL_SECONDS, repeat forever
+#                (also runs maintenance once per iteration — cheap idempotent)
+#   query        one-shot SQL: --query "$KRAWL_QUERY"
+#   stats        one-shot --stats
+#   export       one-shot --export "$KRAWL_EXPORT_TARGET" (default: all)
+#   maintenance  rotate JSONL if huge, VACUUM DB if due — safe to invoke any time
+#   shell        drop to bash (debug)
 #
 # All file paths default into the mounted volumes (/data, /exports, /tasks).
 # tsx runs the TypeScript directly with no separate build step. We tried Bun
@@ -64,12 +66,19 @@ case "$MODE" in
     # instead of leaving a half-written SQLite WAL.
     trap 'echo "[krawl] received SIGTERM, finishing current iteration"; exit 0' TERM INT
     while true; do
+      # Idempotent housekeeping: rotates JSONL if it crossed the size cap,
+      # VACUUMs the DB if a day has passed. No-op when nothing's due.
+      npx tsx src/maintenance.ts || echo "[krawl] maintenance failed, continuing"
       # --resume picks up any checkpoint left by a prior crash/SIGKILL.
       run_once --resume || echo "[krawl] iteration failed (exit=$?), continuing"
       echo "[krawl] sleeping ${INTERVAL}s until next run"
       sleep "$INTERVAL" &
       wait $!
     done
+    ;;
+
+  maintenance)
+    npx tsx src/maintenance.ts
     ;;
 
   query)
@@ -91,7 +100,7 @@ case "$MODE" in
     ;;
 
   *)
-    echo "[krawl] unknown KRAWL_MODE=$MODE (expected: mcp|once|loop|query|stats|export|shell)" >&2
+    echo "[krawl] unknown KRAWL_MODE=$MODE (expected: mcp|once|loop|query|stats|export|maintenance|shell)" >&2
     exit 2
     ;;
 esac

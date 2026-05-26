@@ -39,12 +39,27 @@ function openDb(): Database.Database {
 // in the JSONL stream for this run. Heavy: spins up the full worker pool
 // for one URL. Good enough for ad-hoc MCP calls; do not call in a loop.
 
+// Serialize krawl_url calls. The Scheduler instantiates a full worker pool
+// (Chromium + http + crawl + DB) per call; running N in parallel would N×
+// the RAM footprint and dwarf the container's mem_limit. Cheap tools
+// (query/search/stats/export) stay unserialized.
+function createLock(): <T>(fn: () => Promise<T>) => Promise<T> {
+  let chain: Promise<unknown> = Promise.resolve();
+  return <T>(fn: () => Promise<T>): Promise<T> => {
+    const next = chain.then(fn, fn);   // run regardless of prev outcome
+    chain      = next.catch(() => {}); // strip error from the chain head
+    return next;
+  };
+}
+const krawlUrlLock = createLock();
+
 const krawl_url: ToolDef = {
   name        : "krawl_url",
   description :
     "Fetch and parse a single URL through Krawl's auto-routed worker pool " +
     "(http/browser/crawl). Results are persisted to the SQLite DB and " +
-    "streamed to the JSONL log. Returns the rows extracted for this URL.",
+    "streamed to the JSONL log. Returns the rows extracted for this URL. " +
+    "Serialized: concurrent calls queue behind one another.",
   inputSchema : {
     type      : "object",
     properties: {
@@ -72,47 +87,56 @@ const krawl_url: ToolDef = {
       throw new Error(`krawl_url: url must start with http(s), got '${url}'`);
     }
 
-    // Record the line count so we can return only what THIS call produced
-    // without a separate per-call output file.
-    const startBytes = fs.existsSync(JSONL_PATH)
-      ? fs.statSync(JSONL_PATH).size
-      : 0;
+    return krawlUrlLock(async () => {
+      // Record byte offset so we return only what THIS call produced
+      // without a per-call output file.
+      const startBytes = fs.existsSync(JSONL_PATH)
+        ? fs.statSync(JSONL_PATH).size
+        : 0;
 
-    const scheduler = new Scheduler({
-      dbPath         : DB_PATH,
-      jsonlPath      : JSONL_PATH,
-      checkpointPath : `/data/krawl_checkpoint_mcp.json`,
-      routerCachePath: ROUTER_CACHE,
-      httpConcurrency: 2,
-      browserContexts: 1,
-      instanceId     : "mcp",
-      resume         : false,
-    });
-
-    scheduler.addTasks([{
-      url,
-      mode       : mode as "auto" | "http_json" | "http_curl" | "browser" | "crawl",
-      crawl_depth: crawlDepth,
-    }]);
-    await scheduler.run();
-
-    // Pull just the new JSONL lines.
-    const fd       = fs.openSync(JSONL_PATH, "r");
-    const endBytes = fs.statSync(JSONL_PATH).size;
-    const newBuf   = Buffer.alloc(Math.max(0, endBytes - startBytes));
-    if (newBuf.length > 0) {
-      fs.readSync(fd, newBuf, 0, newBuf.length, startBytes);
-    }
-    fs.closeSync(fd);
-
-    const lines = newBuf.toString("utf8")
-      .split("\n")
-      .filter((l: string) => l.trim().length > 0)
-      .map((l: string) => {
-        try { return JSON.parse(l); } catch { return { raw: l }; }
+      const scheduler = new Scheduler({
+        dbPath         : DB_PATH,
+        jsonlPath      : JSONL_PATH,
+        checkpointPath : `/data/krawl_checkpoint_mcp.json`,
+        routerCachePath: ROUTER_CACHE,
+        httpConcurrency: 2,
+        browserContexts: 1,
+        instanceId     : "mcp",
+        resume         : false,
       });
 
-    return { url, rows: lines.length, results: lines };
+      try {
+        scheduler.addTasks([{
+          url,
+          mode       : mode as "auto" | "http_json" | "http_curl" | "browser" | "crawl",
+          crawl_depth: crawlDepth,
+        }]);
+        await scheduler.run();
+
+        const fd       = fs.openSync(JSONL_PATH, "r");
+        const endBytes = fs.statSync(JSONL_PATH).size;
+        const newBuf   = Buffer.alloc(Math.max(0, endBytes - startBytes));
+        if (newBuf.length > 0) {
+          fs.readSync(fd, newBuf, 0, newBuf.length, startBytes);
+        }
+        fs.closeSync(fd);
+
+        const lines = newBuf.toString("utf8")
+          .split("\n")
+          .filter((l: string) => l.trim().length > 0)
+          .map((l: string) => {
+            try { return JSON.parse(l); } catch { return { raw: l }; }
+          });
+
+        return { url, rows: lines.length, results: lines };
+      } finally {
+        // Scheduler.finalize() closes the JSONL stream and the browser
+        // pool per phase, but leaves the SQLite handle (and its cached
+        // prepared statements) open. Force-close so N MCP calls don't
+        // leak N DB fds + their statement caches.
+        try { scheduler.getDb().close(); } catch { /* already closed */ }
+      }
+    });
   },
 };
 
